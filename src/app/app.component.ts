@@ -9,7 +9,7 @@ import { sheets } from "./sheets";
   selector: "my-app",
   imports: [KENDO_SPREADSHEET],
   template: `
-    <kendo-spreadsheet [sheets]="sheets" style="height: 600px; width: 100%">
+    <kendo-spreadsheet [sheets]="sheets" style="height: 100vh; width: 100%">
     </kendo-spreadsheet>
   `,
 })
