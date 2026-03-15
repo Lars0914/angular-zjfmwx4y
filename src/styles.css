@@ -1,5 +1,41 @@
+/* License banner: fixed yellow bar with "License key missing" text */
+div.ng-star-inserted[style*="position: fixed"][style*="top: 16px"][style*="translateX(-50%)"][style*="rgb(255, 192, 0)"] {
+  display: none !important;
+}
 
-/* Add application styles & imports to this file! */
+/* Watermark overlay on spreadsheet (kendowatermarkoverlay attribute) */
+[kendowatermarkoverlay],
+div[kendowatermarkoverlay] {
+  display: none !important;
+  background: none !important;
+  background-image: none !important;
+}
+
+/* Fallbacks for other Kendo license UI variants */
+body > .k-invalid-license-panel,
+body > [class*="license-notice"],
+body > [class*="license-notification"],
+.k-invalid-license-panel,
+[class*="license-notice"],
+[class*="license-notification"],
+kendo-license-notice,
+[kendo-license-notice] {
+  display: none !important;
+}
+
+.k-invalid-license {
+  background-image: none !important;
+}
+.k-invalid-license::before,
+.k-invalid-license::after {
+  display: none !important;
+  content: none !important;
+}
+.k-spreadsheet [class*="watermark"] {
+  display: none !important;
+  background: none !important;
+  background-image: none !important;
+}
 
 body {
   font-family: 'RobotoRegular', Helvetica, Arial, sans-serif;

@@ -1,1 +1,4 @@
 node_modules
+docs
+.angular
+package-lock.json
