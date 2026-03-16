@@ -1,60 +1,50 @@
-import { Component } from "@angular/core";
+import { Component, ViewChild } from "@angular/core";
 import {
   KENDO_SPREADSHEET,
   SheetDescriptor,
+  SpreadsheetComponent,
 } from "@progress/kendo-angular-spreadsheet";
 import { sheets } from "./sheets";
-import { PdfExportService } from "./pdf-export.service";
+import {
+  exportSpreadsheetToPdf,
+  SpreadsheetDocument,
+} from "./spreadsheet-pdf.service";
 
 @Component({
   selector: "my-app",
   imports: [KENDO_SPREADSHEET],
   template: `
-    <div class="spreadsheet-wrapper">
-      <div class="toolbar">
-        <button type="button" class="save-pdf-btn" (click)="saveAsPdf()">
-          Save as PDF
-        </button>
-      </div>
-      <kendo-spreadsheet [sheets]="sheets" style="height: calc(100% - 48px); width: 100%">
-      </kendo-spreadsheet>
+    <div class="toolbar">
+      <button type="button" class="k-button k-button-solid-primary" (click)="saveAsPdf()">
+        Save as PDF
+      </button>
     </div>
+    <kendo-spreadsheet
+      #spreadsheet
+      [sheets]="sheets"
+      style="height: calc(100% - 48px); width: 100%"
+    >
+    </kendo-spreadsheet>
   `,
   styles: [
     `
-      .spreadsheet-wrapper {
-        height: 100%;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-      }
       .toolbar {
-        flex: 0 0 auto;
         padding: 8px 12px;
-        background: #f5f5f5;
-        border-bottom: 1px solid #e0e0e0;
-      }
-      .save-pdf-btn {
-        padding: 8px 16px;
-        font-size: 14px;
-        background: rgb(0, 62, 117);
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-      .save-pdf-btn:hover {
-        background: rgb(0, 82, 147);
+        border-bottom: 1px solid var(--kendo-color-border, #e0e0e0);
+        background: var(--kendo-color-app-surface, #fff);
       }
     `,
   ],
 })
 export class AppComponent {
+  @ViewChild("spreadsheet") spreadsheetRef!: SpreadsheetComponent;
   public sheets: SheetDescriptor[] = sheets;
 
-  constructor(private pdfExport: PdfExportService) {}
-
   saveAsPdf(): void {
-    this.pdfExport.exportSheetToPdf(this.sheets, "invoice.pdf");
+    const widget = this.spreadsheetRef?.spreadsheetWidget;
+    if (!widget) return;
+    const doc: SpreadsheetDocument = widget.toJSON();
+    const pdf = exportSpreadsheetToPdf(doc);
+    pdf.save("Spreadsheet.pdf");
   }
 }

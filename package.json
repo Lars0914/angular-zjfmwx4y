@@ -36,6 +36,7 @@
     "@progress/kendo-angular-layout": "latest",
     "@progress/kendo-angular-menu": "latest",
     "@progress/kendo-angular-navigation": "latest",
+    "@progress/kendo-angular-pdf-export": "^23.2.0",
     "@progress/kendo-angular-popup": "latest",
     "@progress/kendo-angular-progressbar": "latest",
     "@progress/kendo-angular-spreadsheet": "latest",
@@ -46,13 +47,13 @@
     "@progress/kendo-svg-icons": "4.8.0",
     "@progress/kendo-theme-default": "^13.0.0",
     "core-js": "3.48.0",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.3",
     "rxjs": "^6.5.3",
     "tslib": "2.3.0",
     "typescript": "5.9.3",
     "web-animations-js": "2.3.2",
-    "zone.js": "~0.15.1",
-    "jspdf": "^2.5.2",
-    "jspdf-autotable": "^3.8.3"
+    "zone.js": "~0.15.1"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "v20-lts",
