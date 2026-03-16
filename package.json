@@ -50,9 +50,7 @@
     "tslib": "2.3.0",
     "typescript": "5.9.3",
     "web-animations-js": "2.3.2",
-    "zone.js": "~0.15.1",
-    "jspdf": "^2.5.2",
-    "jspdf-autotable": "^3.8.3"
+    "zone.js": "~0.15.1"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "v20-lts",
