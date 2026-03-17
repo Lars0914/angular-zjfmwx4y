@@ -25,6 +25,7 @@ export interface SpreadsheetSheet {
 
 export interface SpreadsheetDocument {
   sheets?: SpreadsheetSheet[];
+  images?: { [id: string]: string };
 }
 
 const LETTER_LANDSCAPE_WIDTH_MM = 279.4;
@@ -34,6 +35,7 @@ const MARGIN_RIGHT = 10;
 const PRINTABLE_WIDTH_MM = LETTER_LANDSCAPE_WIDTH_MM - MARGIN_LEFT - MARGIN_RIGHT;
 const TABLE_FONT_SIZE = 8;
 const PX_TO_MM = 25.4 / 96;
+const MAX_COLUMN_WIDTH_MM = 35;
 
 function getColumnWidthsMm(
   sheet: SpreadsheetSheet,
@@ -58,7 +60,8 @@ function getColumnWidthsMm(
   const result: number[] = [];
   let totalMm = 0;
   for (const c of columnIndices) {
-    const w = widthByIndex.get(c) ?? PRINTABLE_WIDTH_MM / columnIndices.length;
+    let w = widthByIndex.get(c) ?? PRINTABLE_WIDTH_MM / columnIndices.length;
+    w = Math.min(w, MAX_COLUMN_WIDTH_MM);
     result.push(w);
     totalMm += w;
   }
@@ -113,12 +116,17 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
     for (let c = 0; c < maxCol; c++) {
       const cell = cellByIndex.get(c);
       const raw = cell?.value ?? cell?.formula;
-      const val =
-        raw === undefined || raw === null
-          ? ""
-          : typeof raw === "object" && (raw as Date).getTime
-            ? (raw as Date).toISOString?.() ?? String(raw)
-            : String(raw);
+      let val: string;
+      if (raw === undefined || raw === null) {
+        val = "";
+      } else if (typeof raw === "number") {
+        const n = Number(raw);
+        val = Number.isInteger(n) ? String(n) : n.toFixed(2);
+      } else if (typeof raw === "object" && (raw as Date).getTime) {
+        val = (raw as Date).toISOString?.() ?? String(raw);
+      } else {
+        val = String(raw);
+      }
       rowValues.push(val);
     }
     matrix.push(rowValues);
@@ -149,6 +157,34 @@ function removeEmptyColumns(
   return matrix.map((row) => columnIndices.map((c) => row[c] ?? ""));
 }
 
+function isRowEmpty(row: string[]): boolean {
+  return row.every((cell) => String(cell ?? "").trim() === "");
+}
+
+function removeEmptyRows(matrix: string[][]): string[][] {
+  if (matrix.length === 0) return [];
+  const keep: boolean[] = matrix.map((row, i) => {
+    const empty = isRowEmpty(row);
+    if (!empty) return true;
+    const nextRow = matrix[i + 1];
+    return nextRow != null && !isRowEmpty(nextRow);
+  });
+  return matrix.filter((_, i) => keep[i]);
+}
+
+type TableRowInput = (string | { content: string; colSpan: number })[];
+
+function rowToTableInput(row: string[], numCols: number): TableRowInput {
+  const nonEmptyIndices = row
+    .map((v, i) => (String(v ?? "").trim() ? i : -1))
+    .filter((i) => i >= 0);
+  if (nonEmptyIndices.length === 1) {
+    const content = String(row[nonEmptyIndices[0]] ?? "").trim();
+    return [{ content, colSpan: numCols }];
+  }
+  return row.map((c) => c ?? "");
+}
+
 export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
   const pdf = new jsPDF({
     orientation: "landscape",
@@ -163,12 +199,16 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
     const sheet = sheets[s];
     const rawMatrix = sheetToMatrix(sheet);
     const columnIndices = getColumnIndicesWithData(rawMatrix);
-    const matrix = removeEmptyColumns(rawMatrix, columnIndices);
+    let matrix = removeEmptyColumns(rawMatrix, columnIndices);
+    matrix = removeEmptyRows(matrix);
     if (matrix.length === 0) continue;
 
+    const numCols = matrix[0]?.length ?? 0;
     const [headRow, ...bodyRows] = matrix;
-    const head = headRow ? [headRow] : [];
-    const body = bodyRows;
+    const head = headRow
+      ? [rowToTableInput(headRow, numCols)]
+      : [];
+    const body = bodyRows.map((row) => rowToTableInput(row, numCols));
 
     const columnWidths = getColumnWidthsMm(sheet, columnIndices);
     const tableTotalWidth = columnWidths.reduce((a, b) => a + b, 0);
@@ -206,6 +246,34 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
     opts.startY = startY;
 
     autoTable(pdf, opts);
+  }
+
+  const imageIds = doc.images && Object.keys(doc.images);
+  if (imageIds?.length) {
+    const imgMargin = 10;
+    const maxImgW = LETTER_LANDSCAPE_WIDTH_MM - 2 * imgMargin;
+    const maxImgH = 100;
+    const imgGap = 10;
+    let y = 20;
+    let needNewPage = true;
+    for (const id of imageIds) {
+      const src = doc.images![id];
+      if (!src || typeof src !== "string") continue;
+      if (!src.startsWith("data:")) continue;
+      try {
+        if (needNewPage) {
+          pdf.addPage([LETTER_LANDSCAPE_WIDTH_MM, LETTER_LANDSCAPE_HEIGHT_MM], "landscape");
+          y = 20;
+          needNewPage = false;
+        }
+        const format = src.indexOf("image/jpeg") !== -1 || src.indexOf("image/jpg") !== -1 ? "JPEG" : "PNG";
+        pdf.addImage(src, format, imgMargin, y, maxImgW, maxImgH);
+        y += maxImgH + imgGap;
+        if (y + maxImgH > LETTER_LANDSCAPE_HEIGHT_MM - 20) needNewPage = true;
+      } catch {
+        /* skip invalid image */
+      }
+    }
   }
 
   return pdf;
