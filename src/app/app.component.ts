@@ -1,4 +1,4 @@
-import { Component, ViewChild } from "@angular/core";
+import { ChangeDetectorRef, Component, ViewChild } from "@angular/core";
 import {
   KENDO_SPREADSHEET,
   SheetDescriptor,
@@ -22,6 +22,7 @@ import {
     <kendo-spreadsheet
       #spreadsheet
       [sheets]="sheets"
+      (excelImport)="onExcelImport($event)"
       style="height: calc(100% - 48px); width: 100%"
     >
     </kendo-spreadsheet>
@@ -38,7 +39,18 @@ import {
 })
 export class AppComponent {
   @ViewChild("spreadsheet") spreadsheetRef!: SpreadsheetComponent;
-  public sheets: SheetDescriptor[] = sheets;
+  public sheets: SheetDescriptor[] = [...sheets];
+
+  constructor(private cdr: ChangeDetectorRef) {}
+
+  onExcelImport(event: { file: File | Blob; preventDefault: () => void; sender: { fromFile: (f: File | Blob) => Promise<void>; toJSON: () => SpreadsheetDocument } }): void {
+    event.preventDefault();
+    event.sender.fromFile(event.file).then(() => {
+      const doc = event.sender.toJSON();
+      this.sheets = doc.sheets ?? [];
+      this.cdr.detectChanges();
+    });
+  }
 
   saveAsPdf(): void {
     const widget = this.spreadsheetRef?.spreadsheetWidget;

@@ -5,6 +5,7 @@ export interface SpreadsheetCell {
   value?: string | number | boolean | Date;
   formula?: string;
   index?: number;
+  format?: string;
 }
 
 export interface SpreadsheetRow {
@@ -25,6 +26,7 @@ export interface SpreadsheetSheet {
 
 export interface SpreadsheetDocument {
   sheets?: SpreadsheetSheet[];
+  images?: { [id: string]: string };
 }
 
 const LETTER_LANDSCAPE_WIDTH_MM = 279.4;
@@ -34,13 +36,14 @@ const MARGIN_RIGHT = 10;
 const PRINTABLE_WIDTH_MM = LETTER_LANDSCAPE_WIDTH_MM - MARGIN_LEFT - MARGIN_RIGHT;
 const TABLE_FONT_SIZE = 8;
 const PX_TO_MM = 25.4 / 96;
+const MAX_COLUMN_WIDTH_MM = 35;
 
 function getColumnWidthsMm(
   sheet: SpreadsheetSheet,
-  numColumns: number
+  columnIndices: number[]
 ): number[] {
   const columns = sheet.columns ?? [];
-  if (numColumns === 0) return [];
+  if (columnIndices.length === 0) return [];
 
   const widthByIndex = new Map<number, number>();
   for (const col of columns) {
@@ -51,19 +54,22 @@ function getColumnWidthsMm(
   }
 
   if (widthByIndex.size === 0) {
-    return new Array(numColumns).fill(PRINTABLE_WIDTH_MM / numColumns);
+    const w = PRINTABLE_WIDTH_MM / columnIndices.length;
+    return new Array(columnIndices.length).fill(w);
   }
 
   const result: number[] = [];
   let totalMm = 0;
-  for (let c = 0; c < numColumns; c++) {
-    const w = widthByIndex.get(c) ?? PRINTABLE_WIDTH_MM / numColumns;
+  for (const c of columnIndices) {
+    let w = widthByIndex.get(c) ?? PRINTABLE_WIDTH_MM / columnIndices.length;
+    w = Math.min(w, MAX_COLUMN_WIDTH_MM);
     result.push(w);
     totalMm += w;
   }
 
   if (totalMm <= 0) {
-    return new Array(numColumns).fill(PRINTABLE_WIDTH_MM / numColumns);
+    const w = PRINTABLE_WIDTH_MM / columnIndices.length;
+    return new Array(columnIndices.length).fill(w);
   }
 
   if (totalMm > PRINTABLE_WIDTH_MM) {
@@ -111,12 +117,23 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
     for (let c = 0; c < maxCol; c++) {
       const cell = cellByIndex.get(c);
       const raw = cell?.value ?? cell?.formula;
-      const val =
-        raw === undefined || raw === null
-          ? ""
-          : typeof raw === "object" && (raw as Date).getTime
-            ? (raw as Date).toISOString?.() ?? String(raw)
-            : String(raw);
+      const format = cell?.format ?? "";
+      let val: string;
+      if (raw === undefined || raw === null) {
+        val = "";
+      } else if (typeof raw === "number") {
+        const n = Number(raw);
+        if (format.indexOf("%") !== -1) {
+          const pct = Math.abs(n) <= 1 ? n * 100 : n;
+          val = pct.toFixed(2) + "%";
+        } else {
+          val = Number.isInteger(n) ? String(n) : n.toFixed(2);
+        }
+      } else if (typeof raw === "object" && (raw as Date).getTime) {
+        val = (raw as Date).toISOString?.() ?? String(raw);
+      } else {
+        val = String(raw);
+      }
       rowValues.push(val);
     }
     matrix.push(rowValues);
@@ -124,22 +141,75 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
   return matrix;
 }
 
-function getLastColumnWithData(matrix: string[][]): number {
+function getColumnIndicesWithData(matrix: string[][]): number[] {
   const numCols = matrix[0]?.length ?? 0;
-  for (let c = numCols - 1; c >= 0; c--) {
+  const indices: number[] = [];
+  for (let c = 0; c < numCols; c++) {
     for (let r = 0; r < matrix.length; r++) {
       const val = String(matrix[r]?.[c] ?? "").trim();
-      if (val.length > 0) return c;
+      if (val.length > 0) {
+        indices.push(c);
+        break;
+      }
     }
   }
-  return -1;
+  return indices;
 }
 
-function trimTrailingEmptyColumns(matrix: string[][]): string[][] {
-  const lastCol = getLastColumnWithData(matrix);
-  if (lastCol < 0) return [];
-  const numColsToKeep = lastCol + 1;
-  return matrix.map((row) => row.slice(0, numColsToKeep));
+function removeEmptyColumns(
+  matrix: string[][],
+  columnIndices: number[]
+): string[][] {
+  if (columnIndices.length === 0) return [];
+  return matrix.map((row) => columnIndices.map((c) => row[c] ?? ""));
+}
+
+function isRowEmpty(row: string[]): boolean {
+  return row.every((cell) => String(cell ?? "").trim() === "");
+}
+
+function removeEmptyRows(matrix: string[][]): string[][] {
+  if (matrix.length === 0) return [];
+  const keep: boolean[] = matrix.map((row, i) => {
+    const empty = isRowEmpty(row);
+    if (!empty) return true;
+    const nextRow = matrix[i + 1];
+    return nextRow != null && !isRowEmpty(nextRow);
+  });
+  return matrix.filter((_, i) => keep[i]);
+}
+
+type TableRowInput = (string | { content: string; colSpan: number })[];
+
+function hasValue(row: string[], i: number): boolean {
+  return String(row[i] ?? "").trim().length > 0;
+}
+
+function isEmptyFrom(row: string[], start: number, numCols: number): boolean {
+  for (let j = start; j < numCols; j++) {
+    if (hasValue(row, j)) return false;
+  }
+  return true;
+}
+
+function rowToTableInput(row: string[], numCols: number): TableRowInput {
+  const onlyFirstTwoHaveValues =
+    (hasValue(row, 0) || hasValue(row, 1)) &&
+    isEmptyFrom(row, 2, numCols) &&
+    numCols - 2 >= 3;
+  const onlySecondColumnHasValue =
+    numCols >= 2 &&
+    !hasValue(row, 0) &&
+    hasValue(row, 1) &&
+    isEmptyFrom(row, 2, numCols);
+
+  if (onlyFirstTwoHaveValues || onlySecondColumnHasValue) {
+    return [
+      { content: String(row[0] ?? "").trim(), colSpan: 1 },
+      { content: String(row[1] ?? "").trim(), colSpan: numCols - 1 },
+    ];
+  }
+  return row.map((c) => c ?? "");
 }
 
 export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
@@ -155,15 +225,19 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
   for (let s = 0; s < sheets.length; s++) {
     const sheet = sheets[s];
     const rawMatrix = sheetToMatrix(sheet);
-    const matrix = trimTrailingEmptyColumns(rawMatrix);
+    const columnIndices = getColumnIndicesWithData(rawMatrix);
+    let matrix = removeEmptyColumns(rawMatrix, columnIndices);
+    matrix = removeEmptyRows(matrix);
     if (matrix.length === 0) continue;
 
-    const [headRow, ...bodyRows] = matrix;
-    const head = headRow ? [headRow] : [];
-    const body = bodyRows;
     const numCols = matrix[0]?.length ?? 0;
+    const [headRow, ...bodyRows] = matrix;
+    const head = headRow
+      ? [rowToTableInput(headRow, numCols)]
+      : [];
+    const body = bodyRows.map((row) => rowToTableInput(row, numCols));
 
-    const columnWidths = getColumnWidthsMm(sheet, numCols);
+    const columnWidths = getColumnWidthsMm(sheet, columnIndices);
     const tableTotalWidth = columnWidths.reduce((a, b) => a + b, 0);
     const columnStyles: Record<number, { cellWidth: number }> = {};
     columnWidths.forEach((w, i) => {
@@ -199,6 +273,34 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
     opts.startY = startY;
 
     autoTable(pdf, opts);
+  }
+
+  const imageIds = doc.images && Object.keys(doc.images);
+  if (imageIds?.length) {
+    const imgMargin = 10;
+    const maxImgW = LETTER_LANDSCAPE_WIDTH_MM - 2 * imgMargin;
+    const maxImgH = 100;
+    const imgGap = 10;
+    let y = 20;
+    let needNewPage = true;
+    for (const id of imageIds) {
+      const src = doc.images![id];
+      if (!src || typeof src !== "string") continue;
+      if (!src.startsWith("data:")) continue;
+      try {
+        if (needNewPage) {
+          pdf.addPage([LETTER_LANDSCAPE_WIDTH_MM, LETTER_LANDSCAPE_HEIGHT_MM], "landscape");
+          y = 20;
+          needNewPage = false;
+        }
+        const format = src.indexOf("image/jpeg") !== -1 || src.indexOf("image/jpg") !== -1 ? "JPEG" : "PNG";
+        pdf.addImage(src, format, imgMargin, y, maxImgW, maxImgH);
+        y += maxImgH + imgGap;
+        if (y + maxImgH > LETTER_LANDSCAPE_HEIGHT_MM - 20) needNewPage = true;
+      } catch {
+        /* skip invalid image */
+      }
+    }
   }
 
   return pdf;
