@@ -5,6 +5,7 @@ export interface SpreadsheetCell {
   value?: string | number | boolean | Date;
   formula?: string;
   index?: number;
+  format?: string;
 }
 
 export interface SpreadsheetRow {
@@ -116,12 +117,18 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
     for (let c = 0; c < maxCol; c++) {
       const cell = cellByIndex.get(c);
       const raw = cell?.value ?? cell?.formula;
+      const format = cell?.format ?? "";
       let val: string;
       if (raw === undefined || raw === null) {
         val = "";
       } else if (typeof raw === "number") {
         const n = Number(raw);
-        val = Number.isInteger(n) ? String(n) : n.toFixed(2);
+        if (format.indexOf("%") !== -1) {
+          const pct = Math.abs(n) <= 1 ? n * 100 : n;
+          val = pct.toFixed(2) + "%";
+        } else {
+          val = Number.isInteger(n) ? String(n) : n.toFixed(2);
+        }
       } else if (typeof raw === "object" && (raw as Date).getTime) {
         val = (raw as Date).toISOString?.() ?? String(raw);
       } else {
@@ -174,13 +181,33 @@ function removeEmptyRows(matrix: string[][]): string[][] {
 
 type TableRowInput = (string | { content: string; colSpan: number })[];
 
+function hasValue(row: string[], i: number): boolean {
+  return String(row[i] ?? "").trim().length > 0;
+}
+
+function isEmptyFrom(row: string[], start: number, numCols: number): boolean {
+  for (let j = start; j < numCols; j++) {
+    if (hasValue(row, j)) return false;
+  }
+  return true;
+}
+
 function rowToTableInput(row: string[], numCols: number): TableRowInput {
-  const nonEmptyIndices = row
-    .map((v, i) => (String(v ?? "").trim() ? i : -1))
-    .filter((i) => i >= 0);
-  if (nonEmptyIndices.length === 1) {
-    const content = String(row[nonEmptyIndices[0]] ?? "").trim();
-    return [{ content, colSpan: numCols }];
+  const onlyFirstTwoHaveValues =
+    (hasValue(row, 0) || hasValue(row, 1)) &&
+    isEmptyFrom(row, 2, numCols) &&
+    numCols - 2 >= 3;
+  const onlySecondColumnHasValue =
+    numCols >= 2 &&
+    !hasValue(row, 0) &&
+    hasValue(row, 1) &&
+    isEmptyFrom(row, 2, numCols);
+
+  if (onlyFirstTwoHaveValues || onlySecondColumnHasValue) {
+    return [
+      { content: String(row[0] ?? "").trim(), colSpan: 1 },
+      { content: String(row[1] ?? "").trim(), colSpan: numCols - 1 },
+    ];
   }
   return row.map((c) => c ?? "");
 }
