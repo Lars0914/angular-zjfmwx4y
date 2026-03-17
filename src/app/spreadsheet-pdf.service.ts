@@ -38,6 +38,18 @@ const TABLE_FONT_SIZE = 8;
 const PX_TO_MM = 25.4 / 96;
 const MAX_COLUMN_WIDTH_MM = 35;
 
+function formatNumberWithCommas(n: number, decimals = 2): string {
+  const fixed = n.toFixed(decimals);
+  const [intPart, decPart] = fixed.split(".");
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return decPart != null ? `${withCommas}.${decPart}` : withCommas;
+}
+
+function isCurrencyFormat(format: string): boolean {
+  const f = format.trim();
+  return f.indexOf("$") !== -1 || f.indexOf("€") !== -1 || f.indexOf("¥") !== -1 || /\[$$\]|\[EUR\]|\[USD\]/i.test(f);
+}
+
 function getColumnWidthsMm(
   sheet: SpreadsheetSheet,
   columnIndices: number[]
@@ -126,6 +138,8 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
         if (format.indexOf("%") !== -1) {
           const pct = Math.abs(n) <= 1 ? n * 100 : n;
           val = pct.toFixed(2) + "%";
+        } else if (isCurrencyFormat(format)) {
+          val = "$ " + formatNumberWithCommas(n);
         } else {
           val = Number.isInteger(n) ? String(n) : n.toFixed(2);
         }
@@ -193,6 +207,13 @@ function isEmptyFrom(row: string[], start: number, numCols: number): boolean {
 }
 
 function rowToTableInput(row: string[], numCols: number): TableRowInput {
+  const onlyFirstColumnHasValue =
+    hasValue(row, 0) && isEmptyFrom(row, 1, numCols);
+
+  if (onlyFirstColumnHasValue) {
+    return [{ content: String(row[0] ?? "").trim(), colSpan: numCols }];
+  }
+
   const onlyFirstTwoHaveValues =
     (hasValue(row, 0) || hasValue(row, 1)) &&
     isEmptyFrom(row, 2, numCols) &&
