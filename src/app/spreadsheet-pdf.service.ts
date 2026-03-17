@@ -37,10 +37,10 @@ const PX_TO_MM = 25.4 / 96;
 
 function getColumnWidthsMm(
   sheet: SpreadsheetSheet,
-  numColumns: number
+  columnIndices: number[]
 ): number[] {
   const columns = sheet.columns ?? [];
-  if (numColumns === 0) return [];
+  if (columnIndices.length === 0) return [];
 
   const widthByIndex = new Map<number, number>();
   for (const col of columns) {
@@ -51,19 +51,21 @@ function getColumnWidthsMm(
   }
 
   if (widthByIndex.size === 0) {
-    return new Array(numColumns).fill(PRINTABLE_WIDTH_MM / numColumns);
+    const w = PRINTABLE_WIDTH_MM / columnIndices.length;
+    return new Array(columnIndices.length).fill(w);
   }
 
   const result: number[] = [];
   let totalMm = 0;
-  for (let c = 0; c < numColumns; c++) {
-    const w = widthByIndex.get(c) ?? PRINTABLE_WIDTH_MM / numColumns;
+  for (const c of columnIndices) {
+    const w = widthByIndex.get(c) ?? PRINTABLE_WIDTH_MM / columnIndices.length;
     result.push(w);
     totalMm += w;
   }
 
   if (totalMm <= 0) {
-    return new Array(numColumns).fill(PRINTABLE_WIDTH_MM / numColumns);
+    const w = PRINTABLE_WIDTH_MM / columnIndices.length;
+    return new Array(columnIndices.length).fill(w);
   }
 
   if (totalMm > PRINTABLE_WIDTH_MM) {
@@ -124,22 +126,27 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
   return matrix;
 }
 
-function getLastColumnWithData(matrix: string[][]): number {
+function getColumnIndicesWithData(matrix: string[][]): number[] {
   const numCols = matrix[0]?.length ?? 0;
-  for (let c = numCols - 1; c >= 0; c--) {
+  const indices: number[] = [];
+  for (let c = 0; c < numCols; c++) {
     for (let r = 0; r < matrix.length; r++) {
       const val = String(matrix[r]?.[c] ?? "").trim();
-      if (val.length > 0) return c;
+      if (val.length > 0) {
+        indices.push(c);
+        break;
+      }
     }
   }
-  return -1;
+  return indices;
 }
 
-function trimTrailingEmptyColumns(matrix: string[][]): string[][] {
-  const lastCol = getLastColumnWithData(matrix);
-  if (lastCol < 0) return [];
-  const numColsToKeep = lastCol + 1;
-  return matrix.map((row) => row.slice(0, numColsToKeep));
+function removeEmptyColumns(
+  matrix: string[][],
+  columnIndices: number[]
+): string[][] {
+  if (columnIndices.length === 0) return [];
+  return matrix.map((row) => columnIndices.map((c) => row[c] ?? ""));
 }
 
 export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
@@ -155,15 +162,15 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
   for (let s = 0; s < sheets.length; s++) {
     const sheet = sheets[s];
     const rawMatrix = sheetToMatrix(sheet);
-    const matrix = trimTrailingEmptyColumns(rawMatrix);
+    const columnIndices = getColumnIndicesWithData(rawMatrix);
+    const matrix = removeEmptyColumns(rawMatrix, columnIndices);
     if (matrix.length === 0) continue;
 
     const [headRow, ...bodyRows] = matrix;
     const head = headRow ? [headRow] : [];
     const body = bodyRows;
-    const numCols = matrix[0]?.length ?? 0;
 
-    const columnWidths = getColumnWidthsMm(sheet, numCols);
+    const columnWidths = getColumnWidthsMm(sheet, columnIndices);
     const tableTotalWidth = columnWidths.reduce((a, b) => a + b, 0);
     const columnStyles: Record<number, { cellWidth: number }> = {};
     columnWidths.forEach((w, i) => {
