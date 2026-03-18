@@ -6,6 +6,15 @@ export interface SpreadsheetCell {
   formula?: string;
   index?: number;
   format?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+}
+
+export interface CellDisplay {
+  value: string;
+  bold?: boolean;
+  italic?: boolean;
 }
 
 export interface SpreadsheetRow {
@@ -37,6 +46,7 @@ const PRINTABLE_WIDTH_MM = LETTER_LANDSCAPE_WIDTH_MM - MARGIN_LEFT - MARGIN_RIGH
 const TABLE_FONT_SIZE = 8;
 const PX_TO_MM = 25.4 / 96;
 const MAX_COLUMN_WIDTH_MM = 35;
+const MIN_FIRST_COLUMN_WIDTH_MM = 9;
 
 function formatNumberWithCommas(n: number, decimals = 2): string {
   const fixed = n.toFixed(decimals);
@@ -78,6 +88,11 @@ function getColumnWidthsMm(
     result.push(w);
     totalMm += w;
   }
+  if (result.length > 0) {
+    const prevFirst = result[0];
+    result[0] = Math.max(result[0], MIN_FIRST_COLUMN_WIDTH_MM);
+    totalMm += result[0] - prevFirst;
+  }
 
   if (totalMm <= 0) {
     const w = PRINTABLE_WIDTH_MM / columnIndices.length;
@@ -97,7 +112,7 @@ function getColumnWidthsMm(
   return result;
 }
 
-function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
+function sheetToMatrix(sheet: SpreadsheetSheet): CellDisplay[][] {
   const rows = sheet.rows ?? [];
   if (rows.length === 0) return [];
 
@@ -116,7 +131,7 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
   }
   const sortedRowIndices = Array.from(rowByIndex.keys()).sort((a, b) => a - b);
 
-  const matrix: string[][] = [];
+  const matrix: CellDisplay[][] = [];
   for (const rowIndex of sortedRowIndices) {
     const row = rowByIndex.get(rowIndex)!;
     const cells = row.cells ?? [];
@@ -125,7 +140,7 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
       const idx = cell.index ?? cellByIndex.size;
       cellByIndex.set(idx, cell);
     }
-    const rowValues: string[] = [];
+    const rowValues: CellDisplay[] = [];
     for (let c = 0; c < maxCol; c++) {
       const cell = cellByIndex.get(c);
       const raw = cell?.value ?? cell?.formula;
@@ -148,19 +163,23 @@ function sheetToMatrix(sheet: SpreadsheetSheet): string[][] {
       } else {
         val = String(raw);
       }
-      rowValues.push(val);
+      rowValues.push({
+        value: val,
+        bold: cell?.bold,
+        italic: cell?.italic,
+      });
     }
     matrix.push(rowValues);
   }
   return matrix;
 }
 
-function getColumnIndicesWithData(matrix: string[][]): number[] {
+function getColumnIndicesWithData(matrix: CellDisplay[][]): number[] {
   const numCols = matrix[0]?.length ?? 0;
   const indices: number[] = [];
   for (let c = 0; c < numCols; c++) {
     for (let r = 0; r < matrix.length; r++) {
-      const val = String(matrix[r]?.[c] ?? "").trim();
+      const val = String(matrix[r]?.[c]?.value ?? "").trim();
       if (val.length > 0) {
         indices.push(c);
         break;
@@ -171,18 +190,19 @@ function getColumnIndicesWithData(matrix: string[][]): number[] {
 }
 
 function removeEmptyColumns(
-  matrix: string[][],
+  matrix: CellDisplay[][],
   columnIndices: number[]
-): string[][] {
+): CellDisplay[][] {
   if (columnIndices.length === 0) return [];
-  return matrix.map((row) => columnIndices.map((c) => row[c] ?? ""));
+  const empty: CellDisplay = { value: "" };
+  return matrix.map((row) => columnIndices.map((c) => row[c] ?? empty));
 }
 
-function isRowEmpty(row: string[]): boolean {
-  return row.every((cell) => String(cell ?? "").trim() === "");
+function isRowEmpty(row: CellDisplay[]): boolean {
+  return row.every((cell) => String(cell?.value ?? "").trim() === "");
 }
 
-function removeEmptyRows(matrix: string[][]): string[][] {
+function removeEmptyRows(matrix: CellDisplay[][]): CellDisplay[][] {
   if (matrix.length === 0) return [];
   const keep: boolean[] = matrix.map((row, i) => {
     const empty = isRowEmpty(row);
@@ -193,25 +213,39 @@ function removeEmptyRows(matrix: string[][]): string[][] {
   return matrix.filter((_, i) => keep[i]);
 }
 
-type TableRowInput = (string | { content: string; colSpan: number })[];
-
-function hasValue(row: string[], i: number): boolean {
-  return String(row[i] ?? "").trim().length > 0;
+function cellFontStyle(cell: CellDisplay): FontStyle {
+  if (cell?.bold && cell?.italic) return "bolditalic";
+  if (cell?.bold) return "bold";
+  if (cell?.italic) return "italic";
+  return "normal";
 }
 
-function isEmptyFrom(row: string[], start: number, numCols: number): boolean {
+type FontStyle = "normal" | "bold" | "italic" | "bolditalic";
+type TableCellInput = string | { content: string; colSpan?: number; styles?: { fontStyle?: FontStyle } };
+type TableRowInput = TableCellInput[];
+
+function hasValue(row: CellDisplay[], i: number): boolean {
+  return String(row[i]?.value ?? "").trim().length > 0;
+}
+
+function isEmptyFrom(row: CellDisplay[], start: number, numCols: number): boolean {
   for (let j = start; j < numCols; j++) {
     if (hasValue(row, j)) return false;
   }
   return true;
 }
 
-function rowToTableInput(row: string[], numCols: number): TableRowInput {
+function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
+  if (isRowEmpty(row)) {
+    return [{ content: "", colSpan: numCols }];
+  }
+
   const onlyFirstColumnHasValue =
     hasValue(row, 0) && isEmptyFrom(row, 1, numCols);
 
   if (onlyFirstColumnHasValue) {
-    return [{ content: String(row[0] ?? "").trim(), colSpan: numCols }];
+    const cell = row[0];
+    return [{ content: String(cell?.value ?? "").trim(), colSpan: numCols, styles: { fontStyle: cellFontStyle(cell ?? { value: "" }) } }];
   }
 
   const onlyFirstTwoHaveValues =
@@ -226,11 +260,17 @@ function rowToTableInput(row: string[], numCols: number): TableRowInput {
 
   if (onlyFirstTwoHaveValues || onlySecondColumnHasValue) {
     return [
-      { content: String(row[0] ?? "").trim(), colSpan: 1 },
-      { content: String(row[1] ?? "").trim(), colSpan: numCols - 1 },
+      { content: String(row[0]?.value ?? "").trim(), colSpan: 1, styles: { fontStyle: cellFontStyle(row[0] ?? { value: "" }) } },
+      { content: String(row[1]?.value ?? "").trim(), colSpan: numCols - 1, styles: { fontStyle: cellFontStyle(row[1] ?? { value: "" }) } },
     ];
   }
-  return row.map((c) => c ?? "");
+  return row.map((cell) => {
+    const content = String(cell?.value ?? "").trim();
+    const fontStyle = cellFontStyle(cell ?? { value: "" });
+    return fontStyle !== "normal"
+      ? { content, styles: { fontStyle } }
+      : content;
+  });
 }
 
 export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
