@@ -15,6 +15,7 @@ export interface CellDisplay {
   value: string;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
 }
 
 export interface SpreadsheetRow {
@@ -58,6 +59,18 @@ function formatNumberWithCommas(n: number, decimals = 2): string {
 function isCurrencyFormat(format: string): boolean {
   const f = format.trim();
   return f.indexOf("$") !== -1 || f.indexOf("€") !== -1 || f.indexOf("¥") !== -1 || /\[$$\]|\[EUR\]|\[USD\]/i.test(f);
+}
+
+function isNumberWithCommasFormat(format: string): boolean {
+  const f = format.trim();
+  return f.indexOf(",") !== -1 && (f.indexOf("#") !== -1 || f.indexOf("0") !== -1);
+}
+
+function getDecimalsFromFormat(format: string): number {
+  const f = format.trim();
+  const decMatch = f.match(/\.([0#]+)/);
+  if (!decMatch) return 0;
+  return decMatch[1].length;
 }
 
 function getColumnWidthsMm(
@@ -155,6 +168,8 @@ function sheetToMatrix(sheet: SpreadsheetSheet): CellDisplay[][] {
           val = pct.toFixed(2) + "%";
         } else if (isCurrencyFormat(format)) {
           val = "$ " + formatNumberWithCommas(n);
+        } else if (isNumberWithCommasFormat(format)) {
+          val = formatNumberWithCommas(n, getDecimalsFromFormat(format));
         } else {
           val = Number.isInteger(n) ? String(n) : n.toFixed(2);
         }
@@ -167,6 +182,7 @@ function sheetToMatrix(sheet: SpreadsheetSheet): CellDisplay[][] {
         value: val,
         bold: cell?.bold,
         italic: cell?.italic,
+        underline: cell?.underline,
       });
     }
     matrix.push(rowValues);
@@ -276,6 +292,18 @@ function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
   });
 }
 
+function rowUnderlines(row: CellDisplay[], numCols: number): boolean[] {
+  if (isRowEmpty(row)) return [false];
+  if (hasValue(row, 0) && isEmptyFrom(row, 1, numCols)) return [!!row[0]?.underline];
+  if (
+    (hasValue(row, 0) && hasValue(row, 1) && isEmptyFrom(row, 2, numCols) && numCols - 2 >= 3) ||
+    (numCols >= 2 && !hasValue(row, 0) && hasValue(row, 1) && isEmptyFrom(row, 2, numCols) && String(row[1]?.value ?? "").trim().length > 60)
+  ) {
+    return [!!row[0]?.underline, !!row[1]?.underline];
+  }
+  return row.map((c) => !!c?.underline);
+}
+
 export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
   const pdf = new jsPDF({
     orientation: "landscape",
@@ -300,6 +328,9 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
       ? [rowToTableInput(headRow, numCols)]
       : [];
     const body = bodyRows.map((row) => rowToTableInput(row, numCols));
+    const headUnderlines = headRow ? [rowUnderlines(headRow, numCols)] : [];
+    const bodyUnderlines = bodyRows.map((row) => rowUnderlines(row, numCols));
+    const underlinesMatrix: boolean[][] = [...headUnderlines, ...bodyUnderlines];
 
     const columnWidths = getColumnWidthsMm(sheet, columnIndices);
     const tableTotalWidth = columnWidths.reduce((a, b) => a + b, 0);
@@ -320,6 +351,16 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
       columnStyles,
       styles: { fontSize: TABLE_FONT_SIZE, cellPadding: 2 },
       headStyles: { fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE },
+      didDrawCell: (data: { doc: { getDocument: () => jsPDF }; row: { index: number }; column: { index: number }; cell: { x: number; y: number; width: number; height: number } }) => {
+        const underline = underlinesMatrix[data.row.index]?.[data.column.index];
+        if (underline && data.cell) {
+          const doc = data.doc.getDocument();
+          doc.setDrawColor(0, 0, 0);
+          doc.setLineWidth(0.08);
+          const y = data.cell.y + data.cell.height - 0.3;
+          doc.line(data.cell.x, y, data.cell.x + data.cell.width, y);
+        }
+      },
     };
 
     let startY = 15;
