@@ -351,14 +351,13 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
       columnStyles,
       styles: { fontSize: TABLE_FONT_SIZE, cellPadding: 2 },
       headStyles: { fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE },
-      didDrawCell: (data: { doc: { getDocument: () => jsPDF }; row: { index: number }; column: { index: number }; cell: { x: number; y: number; width: number; height: number } }) => {
+      didDrawCell: (data: { row: { index: number }; column: { index: number }; cell: { x: number; y: number; width: number; height: number } }) => {
         const underline = underlinesMatrix[data.row.index]?.[data.column.index];
         if (underline && data.cell) {
-          const doc = data.doc.getDocument();
-          doc.setDrawColor(0, 0, 0);
-          doc.setLineWidth(0.08);
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.08);
           const y = data.cell.y + data.cell.height - 0.3;
-          doc.line(data.cell.x, y, data.cell.x + data.cell.width, y);
+          pdf.line(data.cell.x, y, data.cell.x + data.cell.width, y);
         }
       },
     };
