@@ -257,8 +257,10 @@ function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
     return [{ content: "", colSpan: numCols }];
   }
 
-  // Do not merge when only the first column has a value (e.g. "2014-15", "2015-16" in Year).
-  // Keep one cell per column so the table aligns with the header (Year | Market Value | Assessed Value | Ratio).
+  const firstColValue = String(row[0]?.value ?? "").trim();
+  if (firstColValue.length > 6) {
+    return [{ content: firstColValue, colSpan: numCols, styles: { fontStyle: cellFontStyle(row[0] ?? { value: "" }) } }];
+  }
 
   const onlyFirstTwoHaveValues =
     hasValue(row, 0) &&
