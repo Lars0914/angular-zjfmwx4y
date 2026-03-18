@@ -249,16 +249,19 @@ function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
   }
 
   const onlyFirstTwoHaveValues =
-    (hasValue(row, 0) || hasValue(row, 1)) &&
+    hasValue(row, 0) &&
+    hasValue(row, 1) &&
     isEmptyFrom(row, 2, numCols) &&
     numCols - 2 >= 3;
-  const onlySecondColumnHasValue =
+  const secondColValue = String(row[1]?.value ?? "").trim();
+  const onlySecondColumnHasValueLong =
     numCols >= 2 &&
     !hasValue(row, 0) &&
     hasValue(row, 1) &&
-    isEmptyFrom(row, 2, numCols);
+    isEmptyFrom(row, 2, numCols) &&
+    secondColValue.length > 60;
 
-  if (onlyFirstTwoHaveValues || onlySecondColumnHasValue) {
+  if (onlyFirstTwoHaveValues || onlySecondColumnHasValueLong) {
     return [
       { content: String(row[0]?.value ?? "").trim(), colSpan: 1, styles: { fontStyle: cellFontStyle(row[0] ?? { value: "" }) } },
       { content: String(row[1]?.value ?? "").trim(), colSpan: numCols - 1, styles: { fontStyle: cellFontStyle(row[1] ?? { value: "" }) } },
