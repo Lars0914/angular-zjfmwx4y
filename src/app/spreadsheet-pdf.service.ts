@@ -190,19 +190,20 @@ function sheetToMatrix(sheet: SpreadsheetSheet): CellDisplay[][] {
   return matrix;
 }
 
+/** Column indices to export: always include first column (A); others only if they have data. */
 function getColumnIndicesWithData(matrix: CellDisplay[][]): number[] {
   const numCols = matrix[0]?.length ?? 0;
-  const indices: number[] = [];
-  for (let c = 0; c < numCols; c++) {
+  const withData = new Set<number>([0]);
+  for (let c = 1; c < numCols; c++) {
     for (let r = 0; r < matrix.length; r++) {
       const val = String(matrix[r]?.[c]?.value ?? "").trim();
       if (val.length > 0) {
-        indices.push(c);
+        withData.add(c);
         break;
       }
     }
   }
-  return indices;
+  return Array.from(withData).sort((a, b) => a - b);
 }
 
 function removeEmptyColumns(
@@ -256,13 +257,8 @@ function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
     return [{ content: "", colSpan: numCols }];
   }
 
-  const onlyFirstColumnHasValue =
-    hasValue(row, 0) && isEmptyFrom(row, 1, numCols);
-
-  if (onlyFirstColumnHasValue) {
-    const cell = row[0];
-    return [{ content: String(cell?.value ?? "").trim(), colSpan: numCols, styles: { fontStyle: cellFontStyle(cell ?? { value: "" }) } }];
-  }
+  // Do not merge when only the first column has a value (e.g. "2014-15", "2015-16" in Year).
+  // Keep one cell per column so the table aligns with the header (Year | Market Value | Assessed Value | Ratio).
 
   const onlyFirstTwoHaveValues =
     hasValue(row, 0) &&
@@ -292,18 +288,6 @@ function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
   });
 }
 
-function rowUnderlines(row: CellDisplay[], numCols: number): boolean[] {
-  if (isRowEmpty(row)) return [false];
-  if (hasValue(row, 0) && isEmptyFrom(row, 1, numCols)) return [!!row[0]?.underline];
-  if (
-    (hasValue(row, 0) && hasValue(row, 1) && isEmptyFrom(row, 2, numCols) && numCols - 2 >= 3) ||
-    (numCols >= 2 && !hasValue(row, 0) && hasValue(row, 1) && isEmptyFrom(row, 2, numCols) && String(row[1]?.value ?? "").trim().length > 60)
-  ) {
-    return [!!row[0]?.underline, !!row[1]?.underline];
-  }
-  return row.map((c) => !!c?.underline);
-}
-
 export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
   const pdf = new jsPDF({
     orientation: "landscape",
@@ -328,9 +312,6 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
       ? [rowToTableInput(headRow, numCols)]
       : [];
     const body = bodyRows.map((row) => rowToTableInput(row, numCols));
-    const headUnderlines = headRow ? [rowUnderlines(headRow, numCols)] : [];
-    const bodyUnderlines = bodyRows.map((row) => rowUnderlines(row, numCols));
-    const underlinesMatrix: boolean[][] = [...headUnderlines, ...bodyUnderlines];
 
     const columnWidths = getColumnWidthsMm(sheet, columnIndices);
     const tableTotalWidth = columnWidths.reduce((a, b) => a + b, 0);
@@ -351,15 +332,6 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
       columnStyles,
       styles: { fontSize: TABLE_FONT_SIZE, cellPadding: 2 },
       headStyles: { fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE },
-      didDrawCell: (data: { row: { index: number }; column: { index: number }; cell: { x: number; y: number; width: number; height: number } }) => {
-        const underline = underlinesMatrix[data.row.index]?.[data.column.index];
-        if (underline && data.cell) {
-          pdf.setDrawColor(0, 0, 0);
-          pdf.setLineWidth(0.08);
-          const y = data.cell.y + data.cell.height - 0.3;
-          pdf.line(data.cell.x, y, data.cell.x + data.cell.width, y);
-        }
-      },
     };
 
     let startY = 15;
