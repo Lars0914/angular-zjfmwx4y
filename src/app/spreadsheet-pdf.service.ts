@@ -252,7 +252,7 @@ function isEmptyFrom(row: CellDisplay[], start: number, numCols: number): boolea
   return true;
 }
 
-function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
+function rowToTableInput(row: CellDisplay[], numCols: number, prevRow?: CellDisplay[]): TableRowInput {
   if (isRowEmpty(row)) {
     return [{ content: "", colSpan: numCols }];
   }
@@ -267,15 +267,16 @@ function rowToTableInput(row: CellDisplay[], numCols: number): TableRowInput {
     hasValue(row, 1) &&
     isEmptyFrom(row, 2, numCols) &&
     numCols - 2 >= 3;
-  const secondColValue = String(row[1]?.value ?? "").trim();
-  const onlySecondColumnHasValueLong =
+  /** Previous row has no data from column 2 onward (only A/B exist for that row). */
+  const prevRowOnlyAB = prevRow != null && isEmptyFrom(prevRow, 2, numCols);
+  const onlySecondColumnMerge =
     numCols >= 2 &&
     !hasValue(row, 0) &&
     hasValue(row, 1) &&
     isEmptyFrom(row, 2, numCols) &&
-    secondColValue.length > 60;
+    prevRowOnlyAB;
 
-  if (onlyFirstTwoHaveValues || onlySecondColumnHasValueLong) {
+  if (onlyFirstTwoHaveValues || onlySecondColumnMerge) {
     return [
       { content: String(row[0]?.value ?? "").trim(), colSpan: 1, styles: { fontStyle: cellFontStyle(row[0] ?? { value: "" }) } },
       { content: String(row[1]?.value ?? "").trim(), colSpan: numCols - 1, styles: { fontStyle: cellFontStyle(row[1] ?? { value: "" }) } },
@@ -313,7 +314,9 @@ export function exportSpreadsheetToPdf(doc: SpreadsheetDocument): jsPDF {
     const head = headRow
       ? [rowToTableInput(headRow, numCols)]
       : [];
-    const body = bodyRows.map((row) => rowToTableInput(row, numCols));
+    const body = bodyRows.map((row, i) =>
+      rowToTableInput(row, numCols, i === 0 ? headRow ?? undefined : bodyRows[i - 1])
+    );
 
     const columnWidths = getColumnWidthsMm(sheet, columnIndices);
     const tableTotalWidth = columnWidths.reduce((a, b) => a + b, 0);
