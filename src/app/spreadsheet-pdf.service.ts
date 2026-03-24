@@ -13,6 +13,7 @@ export interface SpreadsheetCell {
 
 export interface CellDisplay {
   value: string;
+  isNumeric?: boolean;
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
@@ -48,12 +49,14 @@ const TABLE_FONT_SIZE = 8;
 const PX_TO_MM = 25.4 / 96;
 const MAX_COLUMN_WIDTH_MM = 35;
 const MIN_FIRST_COLUMN_WIDTH_MM = 9;
+const MAX_DECIMALS = 4;
 
-function formatNumberWithCommas(n: number, decimals = 2): string {
-  const fixed = n.toFixed(decimals);
+function formatNumberWithCommas(n: number, decimals = MAX_DECIMALS): string {
+  const fixed = n.toFixed(Math.min(Math.max(decimals, 0), MAX_DECIMALS));
   const [intPart, decPart] = fixed.split(".");
   const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return decPart != null ? `${withCommas}.${decPart}` : withCommas;
+  const trimmedDec = (decPart ?? "").replace(/0+$/, "");
+  return trimmedDec.length > 0 ? `${withCommas}.${trimmedDec}` : withCommas;
 }
 
 function isCurrencyFormat(format: string): boolean {
@@ -159,19 +162,21 @@ function sheetToMatrix(sheet: SpreadsheetSheet): CellDisplay[][] {
       const raw = cell?.value ?? cell?.formula;
       const format = cell?.format ?? "";
       let val: string;
+      let isNumeric = false;
       if (raw === undefined || raw === null) {
         val = "";
       } else if (typeof raw === "number") {
         const n = Number(raw);
+        isNumeric = true;
         if (format.indexOf("%") !== -1) {
           const pct = Math.abs(n) <= 1 ? n * 100 : n;
-          val = pct.toFixed(2) + "%";
+          val = formatNumberWithCommas(pct) + "%";
         } else if (isCurrencyFormat(format)) {
           val = "$ " + formatNumberWithCommas(n);
         } else if (isNumberWithCommasFormat(format)) {
           val = formatNumberWithCommas(n, getDecimalsFromFormat(format));
         } else {
-          val = Number.isInteger(n) ? String(n) : n.toFixed(2);
+          val = formatNumberWithCommas(n);
         }
       } else if (typeof raw === "object" && (raw as Date).getTime) {
         val = (raw as Date).toISOString?.() ?? String(raw);
@@ -180,6 +185,7 @@ function sheetToMatrix(sheet: SpreadsheetSheet): CellDisplay[][] {
       }
       rowValues.push({
         value: val,
+        isNumeric,
         bold: cell?.bold,
         italic: cell?.italic,
         underline: cell?.underline,
@@ -238,7 +244,8 @@ function cellFontStyle(cell: CellDisplay): FontStyle {
 }
 
 type FontStyle = "normal" | "bold" | "italic" | "bolditalic";
-type TableCellInput = string | { content: string; colSpan?: number; styles?: { fontStyle?: FontStyle } };
+type HAlign = "left" | "center" | "right";
+type TableCellInput = string | { content: string; colSpan?: number; styles?: { fontStyle?: FontStyle; halign?: HAlign } };
 type TableRowInput = TableCellInput[];
 
 function hasValue(row: CellDisplay[], i: number): boolean {
@@ -259,7 +266,14 @@ function rowToTableInput(row: CellDisplay[], numCols: number, prevRow?: CellDisp
 
   const firstColValue = String(row[0]?.value ?? "").trim();
   if (firstColValue.length > 6) {
-    return [{ content: firstColValue, colSpan: numCols, styles: { fontStyle: cellFontStyle(row[0] ?? { value: "" }) } }];
+    return [{
+      content: firstColValue,
+      colSpan: numCols,
+      styles: {
+        fontStyle: cellFontStyle(row[0] ?? { value: "" }),
+        halign: row[0]?.isNumeric ? "right" : "left",
+      },
+    }];
   }
 
   const onlyFirstTwoHaveValues =
@@ -278,16 +292,32 @@ function rowToTableInput(row: CellDisplay[], numCols: number, prevRow?: CellDisp
 
   if (onlyFirstTwoHaveValues || onlySecondColumnMerge) {
     return [
-      { content: String(row[0]?.value ?? "").trim(), colSpan: 1, styles: { fontStyle: cellFontStyle(row[0] ?? { value: "" }) } },
-      { content: String(row[1]?.value ?? "").trim(), colSpan: numCols - 1, styles: { fontStyle: cellFontStyle(row[1] ?? { value: "" }) } },
+      {
+        content: String(row[0]?.value ?? "").trim(),
+        colSpan: 1,
+        styles: {
+          fontStyle: cellFontStyle(row[0] ?? { value: "" }),
+          halign: row[0]?.isNumeric ? "right" : "left",
+        },
+      },
+      {
+        content: String(row[1]?.value ?? "").trim(),
+        colSpan: numCols - 1,
+        styles: {
+          fontStyle: cellFontStyle(row[1] ?? { value: "" }),
+          halign: row[1]?.isNumeric ? "right" : "left",
+        },
+      },
     ];
   }
   return row.map((cell) => {
     const content = String(cell?.value ?? "").trim();
     const fontStyle = cellFontStyle(cell ?? { value: "" });
-    return fontStyle !== "normal"
-      ? { content, styles: { fontStyle } }
-      : content;
+    const halign: HAlign = cell?.isNumeric ? "right" : "left";
+    if (fontStyle !== "normal" || halign === "right") {
+      return { content, styles: { fontStyle, halign } };
+    }
+    return content;
   });
 }
 
